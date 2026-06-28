@@ -148,13 +148,6 @@ on:
           - ReSukiSU
           - WKSU
         default: "KernelSU-Next"
-      hook_mode:
-        description: "KernelSU hook mode"
-        type: choice
-        options:
-          - "Manual Hook"
-          - "Tracepoint Hook"
-        default: "Manual Hook"
       add_susfs:
         description: "Add SUSFS"
         type: boolean
@@ -194,9 +187,6 @@ on:
       ksu_variant:
         type: string
         default: "KernelSU-Next"
-      hook_mode:
-        type: string
-        default: "Manual Hook"
       add_susfs:
         type: boolean
         default: true
@@ -434,7 +424,6 @@ jobs:
           echo "| SPL | $SPL |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Device | ${DEV:-generic} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Variant | ${{ inputs.ksu_variant }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Hook Mode | ${{ inputs.hook_mode }} |" >> "$GITHUB_STEP_SUMMARY"
 
   download-dependencies:
     uses: ./.github/workflows/cache-dependencies.yml
@@ -451,7 +440,6 @@ jobs:
       kernel_version: ${{ needs.resolve.outputs.kernel_version }}
       sub_level: ${{ needs.resolve.outputs.sub_level }}
       os_patch_level: ${{ needs.resolve.outputs.os_patch_level }}
-      hook_mode: ${{ inputs.hook_mode }}
       add_susfs: ${{ inputs.add_susfs }}
       add_zeromount: ${{ inputs.add_zeromount }}
       add_zram: ${{ inputs.add_zram }}
@@ -470,7 +458,6 @@ jobs:
       kernel_version: ${{ needs.resolve.outputs.kernel_version }}
       sub_level: ${{ needs.resolve.outputs.sub_level }}
       os_patch_level: ${{ needs.resolve.outputs.os_patch_level }}
-      hook_mode: ${{ inputs.hook_mode }}
       add_susfs: ${{ inputs.add_susfs }}
       add_zeromount: ${{ inputs.add_zeromount }}
       add_zram: ${{ inputs.add_zram }}
@@ -489,7 +476,6 @@ jobs:
       kernel_version: ${{ needs.resolve.outputs.kernel_version }}
       sub_level: ${{ needs.resolve.outputs.sub_level }}
       os_patch_level: ${{ needs.resolve.outputs.os_patch_level }}
-      hook_mode: ${{ inputs.hook_mode }}
       add_susfs: ${{ inputs.add_susfs }}
       add_zeromount: ${{ inputs.add_zeromount }}
       add_zram: ${{ inputs.add_zram }}
@@ -508,7 +494,6 @@ jobs:
       kernel_version: ${{ needs.resolve.outputs.kernel_version }}
       sub_level: ${{ needs.resolve.outputs.sub_level }}
       os_patch_level: ${{ needs.resolve.outputs.os_patch_level }}
-      hook_mode: ${{ inputs.hook_mode }}
       add_susfs: ${{ inputs.add_susfs }}
       add_zeromount: ${{ inputs.add_zeromount }}
       add_zram: ${{ inputs.add_zram }}
