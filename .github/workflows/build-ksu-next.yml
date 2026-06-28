@@ -206,7 +206,7 @@ jobs:
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
         # Clone official SUSFS repo to get susfs.c, susfs.h, susfs_def.h
-        git clone --depth=1 -b gki-android14-6.1 \
+        git clone --depth=1 -b gki-${ANDROID_VER}-${KERNEL_VER} \
           https://gitlab.com/simonpunk/susfs4ksu.git \
           /tmp/susfs4ksu_src
 
@@ -218,6 +218,7 @@ jobs:
         # Now apply the official 50_ patch
         patch -p1 -F3 --no-backup-if-mismatch \
           < "$GITHUB_WORKSPACE/$VERSION_DIR/KernelSU-Next/patches/50_add_susfs_in_gki-${ANDROID_VER}-${KERNEL_VER}.patch"
+    
     - name: Apply Enhanced SUSFS Patch
       if: inputs.add_susfs
       working-directory: ${{ env.KERNEL_ROOT }}/common
