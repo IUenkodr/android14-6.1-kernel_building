@@ -442,6 +442,30 @@ jobs:
           echo "IDENTITY_STATUS=Applied ($DEVICE_CODENAME)"
         } >> "$GITHUB_ENV"
 
+    - name: Verify KernelSU sources and patch results
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        set -euo pipefail
+        KSU_DIR="$KERNEL_ROOT/drivers/kernelsu"
+        echo "==> Verifying drivers/kernelsu presence and patch results"
+        if [ ! -d "$KSU_DIR" ]; then
+          echo "ERROR: drivers/kernelsu not found at $KSU_DIR"
+          ls -la "$KERNEL_ROOT" || true
+          exit 1
+        fi
+        # Check for required symbols/implementations
+        if ! grep -R --line-number -E 'ksu_handle_|susfs_' "$KSU_DIR" | sed -n '1,200p'; then
+          echo "ERROR: No ksu_handle_ or susfs_ symbols found in $KSU_DIR"
+          exit 1
+        fi
+        # Fail if any .rej exist (patch failures)
+        if find "$KERNEL_ROOT" -name '*.rej' -print -quit | grep -q .; then
+          echo "ERROR: .rej patch rejects found; listing them:"
+          find "$KERNEL_ROOT" -name '*.rej' -print -exec sed -n '1,200p' {} \;
+          exit 1
+        fi
+        echo "✓ KernelSU source presence and patch results check passed."
+
     - name: Build Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
