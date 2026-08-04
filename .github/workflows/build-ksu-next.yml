@@ -170,31 +170,48 @@ jobs:
           echo "FILE_NAME=$ARTIFACT_BASE"
         } >> "$GITHUB_ENV"
 
-    - name: Setup KernelSU-Next
+    - name: Setup KernelSU-Next & ZeroMount Patches
       working-directory: ${{ env.KERNEL_ROOT }}
-      env:
-        SUKISU_COMMIT: ${{ inputs.sukisu_commit }}
       run: |
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s stable
-        [ -d "$KERNEL_ROOT/$KSU_DIR" ] || { echo "FATAL: $KSU_DIR not created by setup.sh"; exit 1; }
+        cd "$KERNEL_ROOT"
 
-        PIN="${SUKISU_COMMIT:-$(cat "$GITHUB_WORKSPACE/$VERSION_DIR/kernelsu-next-pin.txt" 2>/dev/null || true)}"
-        if [ -n "$PIN" ]; then
-          cd "$KERNEL_ROOT/$KSU_DIR"
-          git fetch origin
-          git checkout "$PIN"
-          echo "Pinned KernelSU-Next to $(git rev-parse --short=7 HEAD)"
-        fi
+        # 1. Remove previous residues
+        rm -rf drivers/kernelsu KernelSU-Next || true
 
-        cd "$KERNEL_ROOT/common"
+        # 2. Clone KernelSU-Next driver into drivers/kernelsu at exact tag
+        git clone --depth 1 --branch v3.3.0 https://github.com/KernelSU-Next/KernelSU-Next.git drivers/kernelsu
 
-        SUPERCALLS="drivers/kernelsu/supercalls.c"
-        if [ -f "$SUPERCALLS" ]; then
-          if grep -q "vzalloc" "$SUPERCALLS" && ! head -5 "$SUPERCALLS" | grep -q "vmalloc.h"; then
-            sed -i '1a #include <linux/vmalloc.h>' "$SUPERCALLS"
+        # 3. Register driver in Makefiles and Kconfig under common/
+        for MF in "drivers/Makefile" "common/drivers/Makefile"; do
+          if [ -f "$MF" ]; then
+            grep -q "obj-y += kernelsu/" "$MF" || echo 'obj-y += kernelsu/' >> "$MF"
           fi
-        fi
+        done
 
+        for KC in "drivers/Kconfig" "common/drivers/Kconfig"; do
+          if [ -f "$KC" ]; then
+            grep -q "drivers/kernelsu/Kconfig" "$KC" || echo 'source "drivers/kernelsu/Kconfig"' >> "$KC"
+          fi
+        done
+
+        # 4. Apply patches in STRICT Super-Builders order: 50_ -> 70_ -> 60_
+        PATCH_DIR="$GITHUB_WORKSPACE/$VERSION_DIR/KernelSU-Next/patches"
+
+        echo "==> Applying 50_enhanced_susfs..."
+        patch -p1 < "$PATCH_DIR"/50_enhanced_susfs-*.patch || true
+
+        echo "==> Applying 70_ksu_safety (connect KSU with SUSFS/ZeroMount)..."
+        # Apply 70_ directly into drivers/kernelsu to modify driver source
+        patch -p1 -d drivers/kernelsu < "$PATCH_DIR"/70_ksu_safety-*.patch || true
+
+        echo "==> Applying 60_zeromount..."
+        patch -p1 < "$PATCH_DIR"/60_zeromount-*.patch || true
+
+        # 5. Run build-helpers for sublevel compatibility if present
+        if [ -d "$GITHUB_WORKSPACE/$VERSION_DIR/build-helpers" ]; then
+          echo "==> Running build-helpers sublevel compatibility..."
+          bash "$GITHUB_WORKSPACE/$VERSION_DIR/build-helpers/apply-sublevel-compat.sh" || true
+        fi
     - name: Fix Old Kernel Compatibility
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
@@ -306,120 +323,67 @@ jobs:
         done < <(grep '^CONFIG_KSU_' "$DEFCONFIG_FRAGMENT" 2>/dev/null || true)
 
         if ! grep -q '^CONFIG_KSU_SUSFS=' "$DEFCONFIG_FRAGMENT" 2>/dev/null; then
-          cat << 'EOF' >> "$DEFCONFIG_FRAGMENT"
-CONFIG_KSU_SUSFS=y
-CONFIG_KSU_SUSFS_SUS_PATH=y
-CONFIG_KSU_SUSFS_SUS_MOUNT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT_REDIRECT=y
-CONFIG_KSU_SUSFS_SUS_MAP=y
-CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-CONFIG_KSU_SUSFS_ENABLE_LOG=y
-CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-CONFIG_KSU_SUSFS_UNICODE_FILTER=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-CONFIG_KSU_SUSFS_HIDDEN_NAME=y
-CONFIG_KSU_SUSFS_HARDENED=y
-EOF
-          cat << 'EOF' >> "$DEFCONFIG"
-CONFIG_KSU_SUSFS=y
-CONFIG_KSU_SUSFS_SUS_PATH=y
-CONFIG_KSU_SUSFS_SUS_MOUNT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT_REDIRECT=y
-CONFIG_KSU_SUSFS_SUS_MAP=y
-CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-CONFIG_KSU_SUSFS_ENABLE_LOG=y
-CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-CONFIG_KSU_SUSFS_UNICODE_FILTER=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-CONFIG_KSU_SUSFS_HIDDEN_NAME=y
-CONFIG_KSU_SUSFS_HARDENED=y
-EOF
-        figuration
-CONFIG_KSU_SUSFS=y
-CONFIG_KSU_SUSFS_SUS_PATH=y
-CONFIG_KSU_SUSFS_SUS_MOUNT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT_REDIRECT=y
-CONFIG_KSU_SUSFS_SUS_MAP=y
-CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-CONFIG_KSU_SUSFS_ENABLE_LOG=y
-CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-CONFIG_KSU_SUSFS_UNICODE_FILTER=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-CONFIG_KSU_SUSFS_HIDDEN_NAME=y
-CONFIG_KSU_SUSFS_HARDENED=y
-' >> "$DEFCONFIG_FRAGMENT"; echo '
-# SUSFS Configuration
-CONFIG_KSU_SUSFS=y
-CONFIG_KSU_SUSFS_SUS_PATH=y
-CONFIG_KSU_SUSFS_SUS_MOUNT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT_REDIRECT=y
-CONFIG_KSU_SUSFS_SUS_MAP=y
-CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-CONFIG_KSU_SUSFS_ENABLE_LOG=y
-CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-CONFIG_KSU_SUSFS_UNICODE_FILTER=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-CONFIG_KSU_SUSFS_HIDDEN_NAME=y
-CONFIG_KSU_SUSFS_HARDENED=y
-' >> "$DEFCONFIG" # "$DEFCONFIG_FRAGMENT" "$DEFCONFIG"
+          printf '%s\n' \
+            'CONFIG_KSU_SUSFS=y' \
+            'CONFIG_KSU_SUSFS_SUS_PATH=y' \
+            'CONFIG_KSU_SUSFS_SUS_MOUNT=y' \
+            'CONFIG_KSU_SUSFS_SUS_KSTAT=y' \
+            'CONFIG_KSU_SUSFS_SUS_KSTAT_REDIRECT=y' \
+            'CONFIG_KSU_SUSFS_SUS_MAP=y' \
+            'CONFIG_KSU_SUSFS_SPOOF_UNAME=y' \
+            'CONFIG_KSU_SUSFS_ENABLE_LOG=y' \
+            'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y' \
+            'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y' \
+            'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y' \
+            'CONFIG_KSU_SUSFS_UNICODE_FILTER=y' \
+            'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y' \
+            'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y' \
+            'CONFIG_KSU_SUSFS_HIDDEN_NAME=y' \
+            'CONFIG_KSU_SUSFS_HARDENED=y' >> "$DEFCONFIG_FRAGMENT"
+
+          printf '%s\n' \
+            'CONFIG_KSU_SUSFS=y' \
+            'CONFIG_KSU_SUSFS_SUS_PATH=y' \
+            'CONFIG_KSU_SUSFS_SUS_MOUNT=y' \
+            'CONFIG_KSU_SUSFS_SUS_KSTAT=y' \
+            'CONFIG_KSU_SUSFS_SUS_KSTAT_REDIRECT=y' \
+            'CONFIG_KSU_SUSFS_SUS_MAP=y' \
+            'CONFIG_KSU_SUSFS_SPOOF_UNAME=y' \
+            'CONFIG_KSU_SUSFS_ENABLE_LOG=y' \
+            'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y' \
+            'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y' \
+            'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y' \
+            'CONFIG_KSU_SUSFS_UNICODE_FILTER=y' \
+            'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y' \
+            'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y' \
+            'CONFIG_KSU_SUSFS_HIDDEN_NAME=y' \
+            'CONFIG_KSU_SUSFS_HARDENED=y' >> "$DEFCONFIG"
         fi
 
-        bash "$HELPERS/bypass-abi-check.sh" . "$ANDROID_VER" "$KERNEL_VER"
+        # Limpiar duplicados y mantener solo banderas 100% compatibles con el Kconfig de GKI
+        OPTS=(
+          "CONFIG_KSU=y"
+          "CONFIG_KSU_SUSFS=y"
+          "CONFIG_ZRAM=y"
+          "CONFIG_ZRAM_DEF_COMP_LZ4KD=y"
+          "CONFIG_TCP_CONG_ADVANCED=y"
+          "CONFIG_TCP_CONG_BBR=y"
+        )
 
-    - name: Clean Module Lists
-      if: inputs.add_zram
-      working-directory: ${{ env.KERNEL_ROOT }}
-      run: |
-        HELPERS="$GITHUB_WORKSPACE/$VERSION_DIR/build-helpers"
-        bash "$HELPERS/clean-module-list.sh" .
-
-    - name: Apply Module Check Bypass
-      working-directory: ${{ env.KERNEL_ROOT }}
-      env:
-        KERNEL_VER: ${{ inputs.kernel_version }}
-      run: |
-        if [[ "$KERNEL_VER" == "6.1" || "$KERNEL_VER" == "6.6" || "$KERNEL_VER" == "6.12" ]]; then
-          TARGET_FILE="$KERNEL_ROOT/common/kernel/module/version.c"
-        else
-          TARGET_FILE="$KERNEL_ROOT/common/kernel/module.c"
-        fi
-        sed -i '/bad_version:/{:a;n;/return 0;/{s/return 0;/return 1;/;b};ba}' "$TARGET_FILE"
-
-    - name: Clean Build Flags
-      working-directory: ${{ env.KERNEL_ROOT }}
-      run: |
-        HELPERS="$GITHUB_WORKSPACE/$VERSION_DIR/build-helpers"
-        bash "$HELPERS/clean-build-flags.sh" . "$KERNEL_VER" "KernelSU-Next"
-
-    - name: Set Stock Build Identity
-      working-directory: ${{ env.KERNEL_ROOT }}/common
-      env:
-        INPUT_CODENAME: ${{ inputs.device_codename }}
-        KERNEL_VER: ${{ inputs.kernel_version }}
-      run: |
-        PROFILE_FILE="$GITHUB_WORKSPACE/device-profiles.json"
-
-        if [ ! -f "$PROFILE_FILE" ] || ! command -v jq &>/dev/null; then
-          echo "IDENTITY_STATUS=Generic" >> "$GITHUB_ENV"
-          exit 0
-        fi
-
+        for entry in "${OPTS[@]}"; do
+          key="${entry%%=*}"
+          sym=${key#CONFIG_}
+          # Verificar que el símbolo está declarado en Kconfig antes de inyectar
+          if grep -Rqx "config ${sym}" common/ ${KSU_DIR:+$KSU_DIR/} --include='Kconfig*' 2>/dev/null; then
+            # Limpiar cualquier ocurrencia previa en fragment y defconfig para evitar duplicados
+            sed -i "/^${key}=/d" "$DEFCONFIG_FRAGMENT" "$DEFCONFIG" 2>/dev/null || true
+            echo "Injecting $entry into fragment and defconfig"
+            printf '%s\n' "$entry" >> "$DEFCONFIG_FRAGMENT"
+            printf '%s\n' "$entry" >> "$DEFCONFIG"
+          else
+            echo "SKIP: $key not declared in Kconfig; not injecting"
+          fi
+        done
         if [ -n "$INPUT_CODENAME" ] && [ "$INPUT_CODENAME" != "generic" ]; then
           PROFILE_SL=$(jq -r ".devices.${INPUT_CODENAME}.sub_level // empty" "$PROFILE_FILE")
           if [ "$PROFILE_SL" = "$SUBLEVEL" ]; then
