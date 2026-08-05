@@ -232,7 +232,8 @@ jobs:
 
     - name: Apply KSU Safety Patch
       if: inputs.add_susfs
-      working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KSU_DIR }}
+      # Apply safety patch directly in drivers/kernelsu (we clone KernelSU into drivers/kernelsu)
+      working-directory: ${{ env.KERNEL_ROOT }}/drivers/kernelsu
       run: |
         PATCH="$GITHUB_WORKSPACE/$VERSION_DIR/KernelSU-Next/patches/70_ksu_safety-kernelsu-next-${KERNEL_VER}.patch"
         if [ -s "$PATCH" ]; then
